@@ -1,0 +1,281 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      String   @default("FAMILY_MEMBER") // FAMILY_MEMBER, PARENT, CAREGIVER, ADMIN
+  status    String   @default("ACTIVE")        // ACTIVE, SUSPENDED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parentProfile     ParentProfile?
+  caregiverProfile  CaregiverProfile?
+  familyConnections FamilyConnection[] @relation("FamilyMemberConnections")
+  
+  createdMedications  Medication[]       @relation("CreatedMedications")
+  createdAppointments Appointment[]      @relation("CreatedAppointments")
+  careRequestsCreated CareRequest[]      @relation("CreatedCareRequests")
+  emergencyTriggered  EmergencyAlert[]   @relation("TriggeredEmergencies")
+  notifications       Notification[]
+  activityLogs        ActivityLog[]      @relation("ActorActivity")
+
+  @@index([email])
+  @@index([role])
+}
+
+model ParentProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  age            Int?
+  address        String?
+  emergencyNotes String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  familyConnections FamilyConnection[]
+  medications       Medication[]
+  medicationLogs    MedicationLog[]
+  appointments      Appointment[]
+  checkIns          CheckIn[]
+  careRequests      CareRequest[]
+  emergencyContacts EmergencyContact[]
+  emergencyAlerts   EmergencyAlert[]
+  activityLogs      ActivityLog[]
+
+  @@index([userId])
+}
+
+model FamilyConnection {
+  id              String   @id @default(uuid())
+  familyMemberId  String
+  parentProfileId String
+  permissionLevel String   @default("FULL_ACCESS") // FULL_ACCESS, LIMITED_ACCESS, VIEW_ONLY
+  status          String   @default("PENDING")     // PENDING, ACCEPTED, REJECTED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  familyMember User          @relation("FamilyMemberConnections", fields: [familyMemberId], references: [id], onDelete: Cascade)
+  parent       ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([familyMemberId, parentProfileId])
+  @@index([familyMemberId])
+  @@index([parentProfileId])
+}
+
+model CaregiverProfile {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  location             String
+  experienceYears      Int      @default(0)
+  skills               String   // Comma separated or text
+  availabilityStatus   String   @default("Available")
+  isVerified           Boolean  @default(false)
+  rating               Float    @default(5.0)
+  completedVisitsCount Int      @default(0)
+  bio                  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  visits CareVisit[]
+
+  @@index([userId])
+  @@index([isVerified])
+}
+
+model Medication {
+  id              String   @id @default(uuid())
+  parentProfileId String
+  name            String
+  dosage          String
+  timeOfDay       String   // e.g. "08:00 AM"
+  frequency       String   // e.g. "Every day"
+  startDate       String
+  endDate         String?
+  instructions    String?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent    ParentProfile   @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+  createdBy User            @relation("CreatedMedications", fields: [createdById], references: [id])
+  logs      MedicationLog[]
+
+  @@index([parentProfileId])
+}
+
+model MedicationLog {
+  id              String    @id @default(uuid())
+  medicationId    String
+  parentProfileId String
+  scheduledTime   String
+  status          String    @default("SCHEDULED") // SCHEDULED, TAKEN, MISSED, SKIPPED
+  takenAt         DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  medication Medication    @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  parent     ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+
+  @@index([medicationId])
+  @@index([parentProfileId])
+  @@index([createdAt])
+}
+
+model Appointment {
+  id              String   @id @default(uuid())
+  parentProfileId String
+  doctorName      String
+  hospitalName    String
+  appointmentDate String   // YYYY-MM-DD
+  time            String   // e.g. "04:30 PM"
+  purpose         String
+  location        String?
+  notes           String?
+  status          String   @default("UPCOMING") // UPCOMING, COMPLETED, CANCELLED
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent    ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+  createdBy User          @relation("CreatedAppointments", fields: [createdById], references: [id])
+
+  @@index([parentProfileId])
+  @@index([appointmentDate])
+}
+
+model CheckIn {
+  id              String   @id @default(uuid())
+  parentProfileId String
+  mood            String   // GOOD, OKAY, NOT_GOOD, NEED_HELP
+  notes           String?
+  date            String   // YYYY-MM-DD
+  time            String   // e.g. "10:15 AM"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+
+  @@index([parentProfileId])
+  @@index([date])
+}
+
+model CareRequest {
+  id              String   @id @default(uuid())
+  parentProfileId String
+  requestedById   String
+  requestType     String   // GENERAL_ASSISTANCE, HOSPITAL_ACCOMPANIMENT, GROCERY_ASSISTANCE, HOME_CHECKIN, OTHER
+  description     String
+  preferredDate   String
+  preferredTime   String
+  location        String
+  status          String   @default("OPEN") // OPEN, ACCEPTED, IN_PROGRESS, COMPLETED, CANCELLED
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent      ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+  requestedBy User          @relation("CreatedCareRequests", fields: [requestedById], references: [id])
+  visit       CareVisit?
+
+  @@index([parentProfileId])
+  @@index([status])
+}
+
+model CareVisit {
+  id                 String    @id @default(uuid())
+  careRequestId      String    @unique
+  caregiverProfileId String
+  status             String    @default("ACCEPTED") // ACCEPTED, ON_THE_WAY, ARRIVED, COMPLETED, CANCELLED
+  notes              String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  careRequest CareRequest      @relation(fields: [careRequestId], references: [id], onDelete: Cascade)
+  caregiver   CaregiverProfile @relation(fields: [caregiverProfileId], references: [id], onDelete: Cascade)
+
+  @@index([caregiverProfileId])
+  @@index([status])
+}
+
+model EmergencyContact {
+  id              String   @id @default(uuid())
+  parentProfileId String
+  name            String
+  relationship    String
+  phone           String
+  priority        Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parent ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+
+  @@index([parentProfileId])
+}
+
+model EmergencyAlert {
+  id                   String    @id @default(uuid())
+  parentProfileId      String
+  triggeredById        String
+  status               String    @default("ACTIVE") // ACTIVE, ACKNOWLEDGED, RESOLVED
+  location             String?
+  notes                String?
+  acknowledgedByUserId String?
+  resolvedByUserId     String?
+  resolvedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  parent      ParentProfile @relation(fields: [parentProfileId], references: [id], onDelete: Cascade)
+  triggeredBy User          @relation("TriggeredEmergencies", fields: [triggeredById], references: [id])
+
+  @@index([parentProfileId])
+  @@index([status])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // MEDICINE_REMINDER, MISSED_MEDICINE, APPOINTMENT_REMINDER, CHECKIN_REMINDER, NEED_HELP_CHECKIN, CARE_REQUEST_ACCEPTED, CARE_VISIT_COMPLETED, EMERGENCY_ALERT, FAMILY_INVITE
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  linkUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model ActivityLog {
+  id              String   @id @default(uuid())
+  parentProfileId String?
+  actorId         String
+  action          String
+  details         String
+  createdAt       DateTime @default(now())
+
+  parent ParentProfile? @relation(fields: [parentProfileId], references: [id], onDelete: SetNull)
+  actor  User           @relation("ActorActivity", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([parentProfileId])
+  @@index([actorId])
+  @@index([createdAt])
+}
